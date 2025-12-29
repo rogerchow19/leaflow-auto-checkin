@@ -25,8 +25,9 @@ class LeaflowAutoCheckin:
     def __init__(self, email, password):
         self.email = email
         self.password = password
-        self.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '')
-        self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID', '')
+        self.xtuis_token = os.getenv("XTUIS_TOKEN")
+        # self.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '')
+        # self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID', '')
         
         if not self.email or not self.password:
             raise ValueError("邮箱和密码不能为空")
@@ -477,8 +478,9 @@ class MultiAccountManager:
     """多账号管理器 - 简化配置版本"""
     
     def __init__(self):
-        self.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '')
-        self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID', '')
+        # self.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '')
+        # self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID', '')
+        self.xtuis_token = os.getenv("XTUIS_TOKEN")
         self.accounts = self.load_accounts()
     
     def load_accounts(self):
@@ -540,52 +542,57 @@ class MultiAccountManager:
         logger.error("2. LEAFLOW_EMAIL 和 LEAFLOW_PASSWORD: 单账号")
         
         raise ValueError("未找到有效的账号配置")
-    
+
     def send_notification(self, results):
-        """发送汇总通知到Telegram - 按照指定模板格式"""
-        if not self.telegram_bot_token or not self.telegram_chat_id:
-            logger.info("Telegram配置未设置，跳过通知")
-            return
-        
+        """发送汇总通知到 xtuis（GET，fire-and-forget）"""
+    
         try:
-            # 构建通知消息
+            token = self.xtuis_token
+            if not token:
+                logger.info("XTUIS_TOKEN 未设置，跳过通知")
+                return
+    
+            # 统计信息
             success_count = sum(1 for _, success, _, _ in results if success)
             total_count = len(results)
             current_date = datetime.now().strftime("%Y/%m/%d")
-            
-            message = f"🎁 Leaflow自动签到通知\n"
-            message += f"📊 成功: {success_count}/{total_count}\n"
-            message += f"📅 签到时间：{current_date}\n\n"
-            
+    
+            # 标题（text）
+            title = "Leaflow 自动签到通知"
+    
+            # 正文（desp）
+            desp = ""
+            desp += f"成功: {success_count}/{total_count}\n"
+            desp += f"签到时间: {current_date}\n\n"
+    
             for email, success, result, balance in results:
-                # 隐藏邮箱部分字符以保护隐私
                 masked_email = email[:3] + "***" + email[email.find("@"):]
-                
+    
+                desp += f"账号: {masked_email}\n"
                 if success:
-                    status = "✅"
-                    message += f"账号：{masked_email}\n"
-                    message += f"{status}  {result}！\n"
-                    message += f"💰  当前总余额：{balance}。\n\n"
+                    desp += f"状态: 成功\n"
+                    desp += f"结果: {result}\n"
+                    desp += f"余额: {balance}\n\n"
                 else:
-                    status = "❌"
-                    message += f"账号：{masked_email}\n"
-                    message += f"{status}  {result}\n\n"
-            
-            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-            data = {
-                "chat_id": self.telegram_chat_id,
-                "text": message,
-                "parse_mode": "HTML"
-            }
-            
-            response = requests.post(url, data=data, timeout=10)
-            if response.status_code == 200:
-                logger.info("Telegram汇总通知发送成功")
-            else:
-                logger.error(f"Telegram通知发送失败: {response.text}")
-                
+                    desp += f"状态: 失败\n"
+                    desp += f"原因: {result}\n\n"
+    
+            # 推送地址（token 来自环境变量）
+            url = f"https://wx.xtuis.cn/{token}.send"
+    
+            # 仅发起请求，不关心结果
+            requests.get(
+                url,
+                params={
+                    "text": title,
+                    "desp": desp
+                },
+                timeout=3  # 精简：避免阻塞主流程
+            )
+    
         except Exception as e:
-            logger.error(f"发送Telegram通知时出错: {e}")
+            logger.error(f"发送 xtuis 通知时出错: {e}")
+
     
     def run_all(self):
         """运行所有账号的签到流程"""
@@ -640,3 +647,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
